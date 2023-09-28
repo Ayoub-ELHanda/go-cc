@@ -2,6 +2,7 @@ package main
 
 import (
 	"archive/zip"
+	"encoding/csv"
 	"fmt"
 	"io"
 	"log"
@@ -26,6 +27,10 @@ func main() {
 	token := os.Getenv("GITHUB_TOKEN")
 
 	repos, err := pkg.FetchRepositoriesWithToken(username, token)
+	if err != nil {
+		log.Fatal(err)
+	}
+	err = writeReposToCSV(repos)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -95,6 +100,33 @@ func main() {
 		log.Fatal(err)
 	}
 
+}
+func writeReposToCSV(repos []pkg.Repository) error {
+	file, err := os.Create("repositories.csv")
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+
+	writer := csv.NewWriter(file)
+	defer writer.Flush()
+
+	// Écrire l'en-tête du fichier CSV
+	err = writer.Write([]string{"Name", "Clone URL", "Description", "Last Updated"})
+	if err != nil {
+		return err
+	}
+
+	// Écrire les informations de chaque dépôt dans le fichier CSV
+	for _, repo := range repos {
+		err = writer.Write([]string{repo.Name, repo.CloneURL, repo.Description, repo.UpdatedAt})
+		if err != nil {
+			return err
+		}
+	}
+
+	fmt.Println("Les informations des dépôts ont été écrites dans repositories.csv")
+	return nil
 }
 
 // ... (les fonctions cloneRepository, gitPullLatestBranch, gitFetchAll et createZipArchive restent inchangées)
