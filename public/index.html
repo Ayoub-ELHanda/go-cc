@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GitHub Username Specifier</title>
+</head>
+<body>
+    <h1>Spécifier le pseudo GitHub d'un utilisateur</h1>
+    <label for="github-username">Nom d'utilisateur GitHub :</label>
+    <input type="text" id="github-username" placeholder="Saisissez le pseudo GitHub">
+    <button onclick="getGitHubUser()">Obtenir les informations</button>
+    <div id="user-info"></div>
+
+    <script>
+        function getGitHubUser() {
+            const username = document.getElementById('github-username').value;
+            // Vous pouvez appeler une fonction ou utiliser une bibliothèque pour récupérer les informations de l'utilisateur GitHub ici
+            // Par exemple, une requête AJAX vers une API GitHub.
+
+            // Exemple de requête avec fetch :
+            fetch(`https://api.github.com/users/${username}`)
+                .then(response => response.json())
+                .then(data => {
+                    // Afficher les informations de l'utilisateur
+                    const userInfo = document.getElementById('user-info');
+                    userInfo.innerHTML = `
+                        <h2>Informations sur l'utilisateur GitHub</h2>
+                        <p>Nom d'utilisateur : ${data.login}</p>
+                        <p>Nom complet : ${data.name}</p>
+                        <p>Nombre de dépôts : ${data.public_repos}</p>
+                    `;
+                })
+                .catch(error => {
+                    console.error('Erreur lors de la récupération des informations GitHub :', error);
+                });
+        }
+    </script>
+</body>
+</html>

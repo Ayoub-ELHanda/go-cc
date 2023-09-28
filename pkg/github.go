@@ -15,8 +15,8 @@ type Repository struct {
 	UpdatedAt   string `json:"updated_at"`
 }
 
-// chercher le repositories en utilisent api git avec  les info de user et token
-func FetchRepositories(user string, token string) ([]Repository, error) {
+// FetchRepositoriesWithToken récupère les dépôts de l'utilisateur ou de l'organisation en utilisant un token API GitHub.
+func FetchRepositoriesWithToken(user string, token string) ([]Repository, error) {
 	client := &http.Client{}
 	req, err := http.NewRequest("GET", fmt.Sprintf("https://api.github.com/users/%s/repos?sort=updated&per_page=100", user), nil)
 	if err != nil {

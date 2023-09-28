@@ -5,10 +5,12 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync" // Importez le package sync pour utiliser WaitGroups
 
 	"github.com/ayoubmcw/cc-go.git/pkg"
 	"github.com/joho/godotenv"
@@ -20,10 +22,10 @@ func main() {
 		log.Fatal("Erreur lors du chargement du fichier .env")
 	}
 
-	user := os.Getenv("GITHUB_USER")
+	username := os.Getenv("GITHUB_USER")
 	token := os.Getenv("GITHUB_TOKEN")
 
-	repos, err := pkg.FetchRepositories(user, token)
+	repos, err := pkg.FetchRepositoriesWithToken(username, token)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -31,43 +33,71 @@ func main() {
 	// Chemin du répertoire de clonage
 	cloneDir := "clone-repo"
 
+	var wg sync.WaitGroup
+
+	// Créez un canal pour collecter les erreurs de goroutines
+	errChan := make(chan error, len(repos))
+
+	// Utilisez une goroutine pour chaque dépôt pour le clonage
 	for _, repo := range repos {
-		err := cloneRepository(repo.CloneURL, cloneDir)
-		if err != nil {
-			fmt.Printf("Erreur lors du clonage du dépôt %s : %v\n", repo.Name, err)
-			continue // Passe au dépôt suivant en cas d'erreur de clonage
-		}
+		wg.Add(1) // Incrémentation du compteur WaitGroup
 
-		fmt.Printf("Le dépôt %s a été cloné avec succès.\n", repo.Name)
+		go func(repo pkg.Repository) {
+			defer wg.Done() // Décrémentation du compteur WaitGroup lorsque la goroutine est terminée
 
-		// Effectuer un Git Pull sur la dernière branche modifiée
-		err = gitPullLatestBranch(filepath.Join(cloneDir, repo.Name))
-		if err != nil {
-			fmt.Printf("Erreur lors du Git Pull pour le dépôt %s : %v\n", repo.Name, err)
-		} else {
+			err := cloneRepository(repo.CloneURL, cloneDir)
+			if err != nil {
+				errChan <- err // Envoyer l'erreur au canal
+				return
+			}
+
+			fmt.Printf("Le dépôt %s a été cloné avec succès.\n", repo.Name)
+
+			// Effectuer un Git Pull sur la dernière branche modifiée
+			err = gitPullLatestBranch(filepath.Join(cloneDir, repo.Name))
+			if err != nil {
+				errChan <- err // Envoyer l'erreur au canal
+				return
+			}
+
 			fmt.Printf("Git Pull effectué avec succès pour le dépôt %s.\n", repo.Name)
-		}
+		}(repo)
 	}
 
-	// Effectuer un Git Fetch pour récupérer toutes les références de branches
-	for _, repo := range repos {
-		err := gitFetchAll(filepath.Join(cloneDir, repo.Name))
+	// Attendre que toutes les goroutines de clonage se terminent
+	wg.Wait()
+
+	// Fermez le canal d'erreur lorsque toutes les goroutines sont terminées
+	close(errChan)
+
+	// Parcourez le canal d'erreur pour vérifier s'il y a des erreurs
+	for err := range errChan {
+		fmt.Printf("Erreur : %v\n", err)
+	}
+
+	// Créer un gestionnaire de route HTTP pour le téléchargement des archives ZIP
+	http.HandleFunc("/download-repo", func(w http.ResponseWriter, r *http.Request) {
+		// Récupérer le nom du dépôt à télécharger depuis le paramètre "repo" dans l'URL
+		repoName := r.URL.Query().Get("repo")
+
+		// Compresser le dépôt et le renvoyer en tant que fichier ZIP
+		err := createZipArchive(filepath.Join(cloneDir, repoName), repoName+".zip", w)
 		if err != nil {
-			fmt.Printf("Erreur lors du Git Fetch pour le dépôt %s : %v\n", repo.Name, err)
-		} else {
-			fmt.Printf("Git Fetch effectué avec succès pour le dépôt %s.\n", repo.Name)
+			http.Error(w, fmt.Sprintf("Erreur lors de la création de l'archive ZIP : %v", err), http.StatusInternalServerError)
 		}
+	})
+
+	// Lancer le serveur HTTP
+	port := ":8080" // Vous pouvez spécifier un port différent si nécessaire
+	fmt.Printf("Serveur en cours d'exécution sur le port %s...\n", port)
+	err = http.ListenAndServe(port, nil)
+	if err != nil {
+		log.Fatal(err)
 	}
 
-	// Créer une archive ZIP à la fin du traitement
-	err = createZipArchive(cloneDir, "repositories.zip")
-	if err != nil {
-		fmt.Printf("Erreur lors de la création de l'archive ZIP : %v\n", err)
-	} else {
-		fmt.Println("L'archive ZIP a été créée avec succès.")
-	}
 }
 
+// ... (les fonctions cloneRepository, gitPullLatestBranch, gitFetchAll et createZipArchive restent inchangées)
 func cloneRepository(cloneURL, cloneDir string) error {
 	// Assurez-vous que le répertoire de clonage existe
 	err := os.MkdirAll(cloneDir, 0755)
@@ -93,27 +123,31 @@ func cloneRepository(cloneURL, cloneDir string) error {
 
 	return nil
 }
-
 func gitPullLatestBranch(repoPath string) error {
 	cmd := exec.Command("git", "pull")
 	cmd.Dir = repoPath
 	return cmd.Run()
 }
+func getRepositories(username, token string) ([]pkg.Repository, error) {
+	// Utilisez le token API GitHub pour cloner également les dépôts privés (si le token est fourni)
+	var repos []pkg.Repository
+	var err error
 
-func gitFetchAll(repoPath string) error {
-	cmd := exec.Command("git", "fetch", "--all")
-	cmd.Dir = repoPath
-	return cmd.Run()
+	if token != "" {
+		repos, err = pkg.FetchRepositoriesWithToken(username, token)
+	} else {
+		return nil, err
+	}
+
+	if err != nil {
+		return nil, err
+	}
+
+	return repos, nil
 }
 
-func createZipArchive(sourceDir, zipFilePath string) error {
-	zipFile, err := os.Create(zipFilePath)
-	if err != nil {
-		return err
-	}
-	defer zipFile.Close()
-
-	archive := zip.NewWriter(zipFile)
+func createZipArchive(sourceDir, zipFileName string, w io.Writer) error {
+	archive := zip.NewWriter(w)
 	defer archive.Close()
 
 	return filepath.Walk(sourceDir, func(path string, info os.FileInfo, err error) error {
