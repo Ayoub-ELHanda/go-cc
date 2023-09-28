@@ -15,6 +15,7 @@ type Repository struct {
 	UpdatedAt   string `json:"updated_at"`
 }
 
+// chercher le repositories en utilisent api git avec  les info de user et token
 func FetchRepositories(user string, token string) ([]Repository, error) {
 	client := &http.Client{}
 	req, err := http.NewRequest("GET", fmt.Sprintf("https://api.github.com/users/%s/repos?sort=updated&per_page=100", user), nil)
@@ -40,7 +41,7 @@ func FetchRepositories(user string, token string) ([]Repository, error) {
 		return nil, err
 	}
 
-	// Trier les dépôts par date de dernière modification
+	// Trier par date de dernière modification
 	sort.Slice(repos, func(i, j int) bool {
 		return repos[i].UpdatedAt > repos[j].UpdatedAt
 	})
